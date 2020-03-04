@@ -47,36 +47,6 @@ Details can be found here <https://wiki.archlinux.org/index.php/Dm-crypt/Drive_p
 7. Look up hostname `hostname`
 8. Connect from working station to new laptop `ssh root@archiso`
 
-## Prepare boot drive
-
-```console
-# delete any existing partition table
-gdisk /dev/sdb
-
-# create three partitions on USB dongle
-cgdisk /dev/sdb
-
-# Size: 512M, Hex Code: ef00, Name: ESP
-# Size: 512M, Hex Code: default (8300), Name: Boot
-# Size: default (remaining space), Hex Code: default (8300), Name: Storage
-#
-# Select "Write" and "Quit" when done
-
-# format ESP
-mkfs.fat -F32 /dev/sdb1
-
-# create encrypted container for /boot
-cryptsetup luksFormat /dev/sdb2 --type luks1
-cryptsetup open /dev/sdb2 cryptboot
-
-# create and mount boot filesystem
-mkfs.ext4 /dev/mapper/cryptboot
-mount /dev/mapper/cryptboot /mnt
-
-# optional: format storage partition
-mkfs.fat -F32 /dev/sdb3
-```
-
 ## Prepare system drive
 
 The system drive will host the swap and root partition. Ext4 is used for the
@@ -91,20 +61,17 @@ open during boot, this should be secure.
 
 ```console
 # create and open encrypted container with detached LUKS header
-truncate -s 16M /mnt/luksheader
-cryptsetup luksFormat /dev/nvme0n1 --type luks1 --header /mnt/luksheader
-cryptsetup open --type luks1 --header /mnt/luksheader /dev/nvme0n1 cryptroot
+cryptsetup luksFormat /dev/nvme0n1 --type luks1
+cryptsetup open --type luks1 /dev/nvme0n1 cryptroot
 
+# not done at install
 # create binary keyfile and store it on cryptboot as well
-dd bs=512 count=4 if=/dev/random of=/mnt/lukskey iflag=fullblock
-chmod 600 /mnt/lukskey
-cryptsetup --header /mnt/luksheader luksAddKey /dev/nvme0n1 /mnt/lukskey
+# dd bs=512 count=4 if=/dev/random of=/mnt/lukskey iflag=fullblock
+# chmod 600 /mnt/lukskey
+# cryptsetup --header /mnt/luksheader luksAddKey /dev/nvme0n1 /mnt/lukskey
 
 # verify container was opened and mapped (/dev/mapper/cryptboot, /dev/mapper/cryptroot)
 fdisk -l
-
-# unmount boot partition
-umount /mnt
 
 # create volume group
 pvcreate /dev/mapper/cryptroot
@@ -120,9 +87,6 @@ swapon -d /dev/mapper/system-swap
 mkfs.ext4 /dev/mapper/system-root
 mount /dev/mapper/system-root /mnt
 
-# mount /boot and ESP into root
-mkdir /mnt/boot
-mount /dev/mapper/cryptboot /mnt/boot
 mkdir /mnt/boot/efi
 mount /dev/sdb1 /mnt/boot/efi
 ```
@@ -132,7 +96,7 @@ mount /dev/sdb1 /mnt/boot/efi
 ### Initialization
 
 1. Change mirror package server if desired `vim /etc/pacman.d/mirrorlist`
-2. Install base images `pacstrap /mnt base linux linux-firmware lvm2 efibootmgr grub-efi-x86_64 intel-ucode mkinitcpio vim netctl dhclient dialog ifplugd`
+2. Install base images `pacstrap /mnt base linux linux-firmware lvm2 efibootmgr grub-efi-x86_64 intel-ucode mkinitcpio vim netctl dhclient dialog ifplugd os-prober`
 3. Generate fstab `genfstab -Up /mnt >> /mnt/etc/fstab`
 4. Change fstab entries of /boot and /boot/efi to use "noauto" flag `vim /mnt/etc/fstab`
 5. Add /tmp ramdisk `vim /mnt/etc/fstab`
@@ -152,67 +116,28 @@ mount /dev/sdb1 /mnt/boot/efi
 
 7. Change root `arch-chroot /mnt`
 
-### Ramdisk configuration
+### Ramdisk configuration`
 
-1. Make copies of 'encrypt' hook files
-
-   ```console
-   cp /lib/initcpio/hooks/encrypt /lib/initcpio/hooks/customencrypt
-   cp /usr/lib/initcpio/install/encrypt /usr/lib/initcpio/install/customencrypt
-   ```
-
-2. Add detached LUKS header support to 'customencrypt' hook `vim /lib/initcpio/hooks/customencrypt`
-
-   ```text
-   # make the following modifications:
-   # ...
-   #    warn_deprecated() {
-   #         echo "The syntax 'root=${root}' where '${root}' is an encrypted volume is deprecated"
-   #         echo "Use 'cryptdevice=${root}:root root=/dev/mapper/root' instead."
-   #     }
-   #
-   #>>>  local headerFlag=false
-   #     for cryptopt in ${cryptoptions//,/ }; do
-   #         case ${cryptopt} in
-   #             allow-discards)
-   #                 cryptargs="${cryptargs} --allow-discards"
-   #                 ;;
-   #>>>          header)
-   #>>>              cryptargs="${cryptargs} --header /boot/luksheader"
-   #>>>              headerFlag=true
-   #>>>              ;;
-   #             *)
-   #                 echo "Encryption option '${cryptopt}' not known, ignoring." >&2
-   #                 ;;
-   #         esac
-   #     done
-   #
-   #     if resolved=$(resolve_device "${cryptdev}" ${rootdelay}); then
-   #>>>      if $headerFlag || cryptsetup isLuks ${resolved} >/dev/null 2>&1; then
-   #             [ ${DEPRECATED_CRYPT} -eq 1 ] && warn_deprecated
-   #             dopassphrase=1
-   ```
-
-3. Add modules, binaries, files and hooks to config `vim /etc/mkinitcpio.conf`
+1. Add modules, binaries, files and hooks to config `vim /etc/mkinitcpio.conf`
 
    ```text
    ...
    MODULES=(i915 loop)
    ...
-   FILES=(/boot/luksheader /boot/lukskey)
+   FILES=() # this would be needed when there is a binary key file
    ...
    HOOKS=(base udev autodetect keyboard keymap modconf block customencrypt lvm2 filesystems fsck)
    ```
 
-4. Generate initial ramdisk `mkinitcpio -p linux`
+2. Generate initial ramdisk `mkinitcpio -p linux`
 
 ### Bootloader Installation
 
-1. Get NVMe device identifier (remember as `$YourDiskId`) `ls -l /dev/disk/by-id | grep nvme0n1`
+1. Get NVMe device identifier as a UUID `lsblk -f` and get the UUID from the system (`$UUID`)
 2. Change Grub defaults `vim /etc/default/grub`
 
    ```text
-   GRUB_CMDLINE_LINUX="cryptdevice=/dev/disk/by-id/$YourDiskId:cryptroot:allow-discards,header cryptkey=rootfs:/boot/lukskey"
+   GRUB_CMDLINE_LINUX="... cryptdevice=UUID=$UUID:cryptlvm ..."
    GRUB_PRELOAD_MODULES="part_gpt part_msdos lvm"
    GRUB_ENABLE_CRYPTODISK=y
    ```
