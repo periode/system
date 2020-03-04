@@ -4,7 +4,7 @@
 
 1. Use `wifi-menu` or `dhclient` for wired connections.
 2. Install ssh `pacman -S openssh`
-3. Configure initial SSH key `mkdir ~/.ssh && curl -fLsS https://github.com/grobie.keys > ~/.ssh/authorized_keys`
+3. Configure initial SSH key `mkdir ~/.ssh && curl -fLsS https://github.com/periode.keys > ~/.ssh/authorized_keys`
 4. Start SSH server `systemctl start sshd.service`
 
 ## Gnome
