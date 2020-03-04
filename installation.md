@@ -261,7 +261,7 @@ cryptsetup defaults are followed.
 
 ```console
 # open encrypted devices
-cryptsetup open /dev/nvme01 BLA BLA (check with lsblk) decrypted
+cryptsetup open /dev/nvme0n1p5 (check with lsblk) decrypted
 mount /dev/mapper/system-root /mnt
 
 # use system installation
