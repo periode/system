@@ -261,15 +261,8 @@ cryptsetup defaults are followed.
 
 ```console
 # open encrypted devices
-cryptsetup open /dev/sda2 cryptboot
-mount /dev/mapper/cryptboot /mnt
-cryptsetup open --type luks1 --header /mnt/luksheader /dev/nvme0n1 cryptroot
-umount /mnt
-
-# wait for /dev/mapper/system-root to appear
+cryptsetup open /dev/nvme01 BLA BLA (check with lsblk) decrypted
 mount /dev/mapper/system-root /mnt
-mount /dev/mapper/cryptboot /mnt/boot
-mount /dev/sda1 /mnt/boot/
 
 # use system installation
 arch-chroot /mnt
